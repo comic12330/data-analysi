@@ -10,3 +10,6 @@ __pycache__/
 # IDE 配置
 .idea/
 .vscode/
+
+# 导入前自动备份的原始数据
+data/_backup/

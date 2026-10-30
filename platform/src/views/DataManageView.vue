@@ -100,9 +100,12 @@
 
           <!-- 操作栏 -->
           <div class="action-bar">
-            <button class="btn" @click="doValidate" :disabled="!upload.rows.length">⚙ 数据校验</button>
-            <button class="btn warn" @click="doPreprocess" :disabled="!upload.rows.length">✦ 数据预处理</button>
-            <button class="btn success" @click="doConfirm" :disabled="!validated">✓ 确认导入</button>
+            <button class="btn" @click="doValidate" :disabled="!upload.rows.length || importing">⚙ 数据校验</button>
+            <button class="btn warn" @click="doPreprocess" :disabled="!upload.rows.length || importing">✦ 数据预处理</button>
+            <button class="btn success" @click="doConfirm" :disabled="!validated || importing">✓ 确认导入</button>
+          </div>
+          <div class="imp-status" v-if="importStep">
+            <span class="dot" :class="{ busy: importing }"></span>{{ importStep }}
           </div>
         </div>
       </section>
@@ -197,6 +200,24 @@ const history = ref([
   { no: 2, time: '2026-09-30 10:24:18', type: '负荷数据', file: '03_小时级源荷气象电价数据.csv', rows: 5832, res: '1小时', by: '系统初始化', status: '成功' },
   { no: 1, time: '2026-09-30 10:21:05', type: '风资源数据', file: '03_小时级源荷气象电价数据.csv', rows: 5832, res: '1小时', by: '系统初始化', status: '成功' }
 ])
+const importing = ref(false)
+const importStep = ref('')
+let importTimer = null
+let hisSeq = 4
+
+// 读取本地保存的导入记录（刷新后仍保留）
+function loadHistory () {
+  try {
+    const saved = JSON.parse(localStorage.getItem('sglss_import_history') || '[]')
+    if (Array.isArray(saved) && saved.length) {
+      history.value = saved
+      hisSeq = Math.max(...saved.map(h => h.no)) + 1
+    }
+  } catch (e) {}
+}
+function saveHistory () {
+  try { localStorage.setItem('sglss_import_history', JSON.stringify(history.value.slice(0, 20))) } catch (e) {}
+}
 const toast = ref({ show: false, text: '', type: 'ok' })
 let toastTimer = null
 
@@ -411,27 +432,72 @@ function doPreprocess () {
   showToast('数据预处理完成')
 }
 
-// ---------- 确认导入 ----------
-let hisSeq = 4
+// ---------- 确认导入：写回原始数据文件并触发重算 ----------
+const API_TYPES = { wind: 1, solar: 1, load: 1, price: 1, device: 1, cost: 1, tariff: 1 }
+const FIELD_NAMES = { windSpeed: '风速', ghi: '总辐照度', temp: '温度', load: '负荷', price: '购电价', pvAvailable: '光伏可用出力' }
+
 function doConfirm () {
-  const mappedFields = mapping.value.filter(m => m.target).map(m => m.target)
-  const typeName = curType.value ? curType.value.label : '其他数据'
-  history.value.unshift({
-    no: hisSeq++,
-    time: nowStr(),
-    type: typeName,
-    file: upload.value.file,
-    rows: upload.value.rows.length,
-    res: resolution.value,
-    by: '管理员',
-    status: '成功'
+  if (importing.value) return
+  const mapped = mapping.value.filter(m => m.target)
+  // 参数类表格按列名直接匹配，不要求字段映射
+  const byHeader = ['device', 'cost', 'tariff'].includes(selected.value)
+  if (!byHeader && !mapped.length) { showToast('请先完成字段映射', 'err'); return }
+  if (!API_TYPES[selected.value]) {
+    showToast('“' + curType.value.label + '”属于评价结果，不支持导入', 'warn')
+    return
+  }
+  const apiType = resolution.value === '15分钟' && mapped.some(m => m.target === 'pvAvailable')
+    ? 'q15' : selected.value
+
+  importing.value = true
+  importStep.value = '正在写回数据文件…'
+
+  fetch('/api/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: apiType, rows: upload.value.rows, mapping: mapped, resolution: resolution.value })
+  }).then(async res => {
+    const data = await res.json()
+    if (!res.ok || data.error) throw new Error(data.error || 'HTTP ' + res.status)
+    importStep.value = '已写回 ' + data.updated + ' 处，准备重算…'
+    pollImport()
+  }).catch(e => {
+    importing.value = false
+    importStep.value = ''
+    showToast('导入失败：' + e.message, 'err')
   })
-  showToast('导入成功：' + upload.value.file + '（' + fmt(upload.value.rows.length) + ' 行，字段：' + mappedFields.join('、') + '）')
-  upload.value = { file: '', rows: [], columns: [] }
-  mapping.value = []
-  checkResult.value = null
-  validated.value = false
-  preprocessMsg.value = ''
+}
+
+// 轮询重算进度，完成后刷新页面读取新数据
+function pollImport () {
+  clearInterval(importTimer)
+  importTimer = setInterval(async () => {
+    try {
+      const s = await fetch('/api/import').then(r => r.json())
+      if (s.running) { importStep.value = '正在重算：' + s.step; return }
+      clearInterval(importTimer)
+      importing.value = false
+      if (s.error) {
+        importStep.value = '重算失败：' + s.error
+        showToast('重算失败：' + s.error, 'err')
+        return
+      }
+      const mappedFields = mapping.value.filter(m => m.target).map(m => m.target)
+      const typeName = curType.value ? curType.value.label : '其他数据'
+      history.value.unshift({
+        no: hisSeq++, time: nowStr(), type: typeName, file: upload.value.file,
+        rows: upload.value.rows.length, res: resolution.value, by: '管理员', status: '成功'
+      })
+      saveHistory()
+      importStep.value = '导入完成，正在刷新页面…'
+      showToast('导入完成，字段：' + mappedFields.map(f => FIELD_NAMES[f] || f).join('、'))
+      setTimeout(() => location.reload(), 1500)
+    } catch (e) {
+      clearInterval(importTimer)
+      importing.value = false
+      importStep.value = ''
+    }
+  }, 1500)
 }
 
 onMounted(async () => {
@@ -451,6 +517,7 @@ onMounted(async () => {
   cost.value = c
   optimization.value = o
   indicators.value = i
+  loadHistory()
   ready.value = true
 })
 </script>
@@ -561,6 +628,22 @@ onMounted(async () => {
   gap: 10px;
   flex-shrink: 0;
 }
+.imp-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--txt-2);
+}
+.imp-status .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+.imp-status .dot.busy { animation: imp-pulse 1s infinite; }
+@keyframes imp-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .25 } }
 
 /* ---- 右侧预览 ---- */
 .pv-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
