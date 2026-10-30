@@ -25,7 +25,7 @@
     </header>
 
     <!-- 主体：左KPI竖栏 / 中央平衡全景 / 右图表流 -->
-    <main class="dash-grid">
+    <main class="dash-grid" :class="{ 'q15-mode': scale === 'q15' }">
       <!-- 左侧：友好性评分 + 指标条 + 装机卡片 -->
       <aside class="side-col">
         <div class="panel score-card">
@@ -70,10 +70,17 @@
       <section class="panel center">
         <div class="corner"></div>
         <div class="panel-head">
-          <div class="panel-title">源网荷储电力平衡全景 <span class="en">Power Balance Overview</span></div>
-          <div class="date-pick">
+          <div class="panel-title">{{ centerTitle }} <span class="en">Power Balance Overview</span></div>
+          <div class="scale-bar">
+            <span class="scale-btn" v-for="s in scales" :key="s.k"
+                  :class="{ on: scale === s.k }" @click="scale = s.k">{{ s.label }}</span>
+          </div>
+          <div class="date-pick" v-if="scale === 'day'">
             <input class="input" type="date" v-model="selDate"
                    :min="timeRange.start.slice(0, 10)" :max="timeRange.end.slice(0, 10)" />
+          </div>
+          <div class="date-pick" v-else-if="scale === 'month'">
+            <input class="input" type="month" v-model="selMonth" min="2026-01" max="2026-08" />
           </div>
         </div>
         <div class="panel-body">
@@ -81,8 +88,8 @@
         </div>
       </section>
 
-      <!-- 右侧：出力与储能、雷达 -->
-      <aside class="right-col">
+      <!-- 右侧：出力与储能、雷达（15 分钟视图下隐藏，中央图占满） -->
+      <aside class="right-col" v-if="scale !== 'q15'">
         <div class="panel">
           <div class="corner"></div>
           <div class="panel-head">
@@ -141,6 +148,8 @@ const C = {
   balWind: '#2ec98a',     // 平衡图·风电
   ess: '#b78bff',         // 储能放电
   gridBuy: '#ff5d6c',     // 外购电
+  gridSell: '#4da3ff',    // 上网售电
+  curtail: '#7ba28f',     // 弃风弃光
   load: '#f2fff8',        // 负荷线
   chg: '#3ee68f',         // 充电
   dis: '#ff8b4a',         // 放电
@@ -161,6 +170,24 @@ const device = ref([])
 const selDate = ref('')
 const optRes = ref(null)   // 智能优化引擎输出（optimize.py 生成，可选）
 
+// ---------- 时间尺度 ----------
+const scales = [
+  { k: 'day', label: '典型日' },
+  { k: 'month', label: '月度' },
+  { k: 'period', label: '统计期' },
+  { k: 'q15', label: '15 分钟' }
+]
+const scale = ref('day')
+const selMonth = ref('')
+const typical = ref([])    // 04 典型日 15 分钟曲线（96 点）
+
+const centerTitle = computed(() => ({
+  day: '源网荷储电力平衡全景',
+  month: '月度生产模拟',
+  period: '统计期生产模拟',
+  q15: '典型日 15 分钟运行曲线'
+}[scale.value]))
+
 const kpi = computed(() => summary.value.kpi || {})
 const timeRange = computed(() => summary.value.timeRange || { start: '', end: '' })
 
@@ -169,6 +196,25 @@ const dayData = computed(() =>
   selDate.value ? simulation.value.filter(r => r.date === selDate.value) : []
 )
 const hours = computed(() => dayData.value.map(r => r.time.slice(11, 16)))
+
+// 所选月份逐时数据
+const monthData = computed(() =>
+  selMonth.value ? simulation.value.filter(r => r.date.slice(0, 7) === selMonth.value) : []
+)
+const monthLabels = computed(() => monthData.value.map(r => r.time.slice(5, 13)))
+
+// 统计期按月份聚合电量（MWh）
+const periodAgg = computed(() => {
+  const map = {}
+  simulation.value.forEach(r => {
+    const k = r.time.slice(0, 7)
+    if (!map[k]) map[k] = { wind: 0, pv: 0, discharge: 0, gridBuy: 0, gridSell: 0, curtail: 0, load: 0 }
+    const m = map[k]
+    m.wind += r.wind; m.pv += r.pv; m.discharge += r.discharge
+    m.gridBuy += r.gridBuy; m.gridSell += r.gridSell; m.curtail += r.curtail; m.load += r.load
+  })
+  return Object.keys(map).sort().map(k => ({ label: +k.slice(5) + '月', ...map[k] }))
+})
 
 // 峰值负荷（全周期）
 const peakLoad = computed(() =>
@@ -258,31 +304,90 @@ const pvOption = computed(() => ({
   ]
 }))
 
-const balanceOption = computed(() => ({
-  textStyle: chartTheme.textStyle,
-  legend: { ...chartTheme.legend, top: 4 },
-  grid: { left: 50, right: 26, top: 40, bottom: 46 },
-  tooltip: tooltipAxis,
-  toolbox,
-  dataZoom: [
-    { type: 'inside' },
-    { type: 'slider', height: 14, bottom: 8, borderColor: '#1c5c3e', backgroundColor: 'rgba(6,28,18,.6)', fillerColor: 'rgba(62,230,143,.15)', textStyle: { color: '#5f8a78' } }
-  ],
-  xAxis: { type: 'category', data: hours.value, ...chartTheme.categoryAxis },
-  yAxis: { type: 'value', name: 'MW', nameTextStyle: { color: '#5f8a78' }, ...chartTheme.valueAxis },
-  series: [
-    { name: '风电出力', type: 'bar', stack: 'supply', barMaxWidth: 34, data: dayData.value.map(r => +r.wind.toFixed(2)), itemStyle: { color: C.balWind } },
-    { name: '光伏出力', type: 'bar', stack: 'supply', data: dayData.value.map(r => +r.pv.toFixed(2)), itemStyle: { color: C.pv } },
-    { name: '储能放电', type: 'bar', stack: 'supply', data: dayData.value.map(r => +r.discharge.toFixed(2)), itemStyle: { color: C.ess } },
-    { name: '外购电量', type: 'bar', stack: 'supply', itemStyle: { color: C.gridBuy }, data: dayData.value.map(r => +r.gridBuy.toFixed(2)) },
+// 平衡图序列：供给侧堆叠柱 + 售电/弃电（负值线）+ 负荷线
+function supplySeries (rows, isAgg) {
+  const num = v => isAgg ? Math.round(v) : +v.toFixed(2)
+  const val = (k, sign = 1) => rows.map(r => num((r[k] || 0) * sign))
+  const sym = (isAgg || rows.length > 48) ? 'none' : 'circle'
+  return [
+    { name: '风电出力', type: 'bar', stack: 'supply', barMaxWidth: isAgg ? 46 : 30, data: val('wind'), itemStyle: { color: C.balWind } },
+    { name: '光伏出力', type: 'bar', stack: 'supply', data: val('pv'), itemStyle: { color: C.pv } },
+    { name: '储能放电', type: 'bar', stack: 'supply', data: val('discharge'), itemStyle: { color: C.ess } },
+    { name: '外购电量', type: 'bar', stack: 'supply', data: val('gridBuy'), itemStyle: { color: C.gridBuy } },
     {
-      name: '负荷', type: 'line', symbol: 'circle', symbolSize: 5,
-      data: dayData.value.map(r => +r.load.toFixed(2)),
+      name: '上网售电', type: 'line', symbol: 'none',
+      data: val('gridSell', -1),
+      lineStyle: { color: C.gridSell, width: 1.6, type: 'dashed' },
+      itemStyle: { color: C.gridSell }
+    },
+    {
+      name: '弃风弃光', type: 'line', symbol: 'none',
+      data: val('curtail', -1),
+      lineStyle: { color: C.curtail, width: 1.6, type: 'dashed' },
+      itemStyle: { color: C.curtail }
+    },
+    {
+      name: '负荷', type: 'line', symbol: sym, symbolSize: 4,
+      data: val('load'),
       lineStyle: { color: C.load, width: 2 },
       itemStyle: { color: C.load }
     }
   ]
-}))
+}
+
+const zoomCfg = [
+  { type: 'inside' },
+  { type: 'slider', height: 14, bottom: 8, borderColor: '#1c5c3e', backgroundColor: 'rgba(6,28,18,.6)', fillerColor: 'rgba(62,230,143,.15)', textStyle: { color: '#5f8a78' } }
+]
+
+const balanceOption = computed(() => {
+  // 15 分钟：04 数据只含光伏可用出力与负荷
+  if (scale.value === 'q15') {
+    const rows = typical.value
+    return {
+      textStyle: chartTheme.textStyle,
+      legend: { ...chartTheme.legend, top: 2, left: 'center' },
+      grid: { left: 48, right: 20, top: 34, bottom: 24 },
+      tooltip: tooltipAxis,
+      toolbox,
+      xAxis: { type: 'category', data: rows.map(r => r.time), ...chartTheme.categoryAxis },
+      yAxis: { type: 'value', name: 'MW', nameTextStyle: { color: '#5f8a78' }, ...chartTheme.valueAxis },
+      series: [
+        {
+          name: '光伏可用出力', type: 'bar', barMaxWidth: 8,
+          data: rows.map(r => +r.pvAvailable.toFixed(2)),
+          itemStyle: { color: C.pv },
+          ...gradientArea('rgba(255,181,69,.45)', 'rgba(255,181,69,0)')
+        },
+        {
+          name: '负荷', type: 'line', smooth: true, symbol: 'none',
+          data: rows.map(r => +r.load.toFixed(2)),
+          lineStyle: { color: C.load, width: 2 },
+          itemStyle: { color: C.load }
+        }
+      ]
+    }
+  }
+
+  const isAgg = scale.value === 'period'
+  const rows = isAgg ? periodAgg.value : (scale.value === 'month' ? monthData.value : dayData.value)
+  const xData = isAgg
+    ? periodAgg.value.map(p => p.label)
+    : (scale.value === 'month' ? monthLabels.value : hours.value)
+  const zoom = scale.value === 'month'
+
+  return {
+    textStyle: chartTheme.textStyle,
+    legend: { ...chartTheme.legend, top: 2, left: 'center', itemGap: 12, textStyle: { color: '#9ccbbb', fontSize: 10 } },
+    grid: { left: 52, right: 24, top: 36, bottom: zoom ? 46 : 26 },
+    tooltip: tooltipAxis,
+    toolbox,
+    dataZoom: zoom ? zoomCfg : [],
+    xAxis: { type: 'category', data: xData, ...chartTheme.categoryAxis },
+    yAxis: { type: 'value', name: isAgg ? 'MWh' : 'MW', nameTextStyle: { color: '#5f8a78' }, ...chartTheme.valueAxis },
+    series: supplySeries(rows, isAgg)
+  }
+})
 
 const batteryOption = computed(() => {
   const socP = device.value.find(d => d.param === 'SOC范围')
@@ -423,7 +528,10 @@ onMounted(async () => {
   device.value = d
   // 智能优化引擎结果可选加载（未运行 optimize.py 时不影响大屏）
   loadJSON('optimization_results.json').then(x => { optRes.value = x }).catch(() => {})
+  // 典型日 15 分钟曲线（04 文件）
+  loadJSON('typical_day.json').then(x => { typical.value = x }).catch(() => {})
   selDate.value = s.typicalDate
+  selMonth.value = s.typicalDate.slice(0, 7)
   ready.value = true
 })
 </script>
@@ -472,6 +580,7 @@ onMounted(async () => {
   grid-template-columns: 250px 1fr 360px;
   gap: 10px;
 }
+.dash-grid.q15-mode { grid-template-columns: 250px 1fr; }
 .side-col { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 .score-card { flex-shrink: 0; }
 .kpi-stack { flex: 1; min-height: 0; }
@@ -479,8 +588,24 @@ onMounted(async () => {
 .right-col .panel { flex: 1; min-height: 0; }
 .panel.center { min-height: 0; }
 .unit { font-size: 11px; color: var(--txt-3); white-space: nowrap; margin-left: auto; }
-.date-pick { margin-left: auto; }
+.date-pick { margin-left: 4px; }
 .date-pick .input { padding: 3px 8px; font-size: 12px; color-scheme: dark; }
+
+/* 时间尺度切换 */
+.scale-bar { display: flex; gap: 3px; margin-left: auto; }
+.scale-btn {
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border: 1px solid rgba(62, 230, 143, .3);
+  border-radius: 4px;
+  color: var(--txt-2);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.scale-btn:hover { color: var(--cyan); border-color: rgba(62, 230, 143, .6); }
+.scale-btn.on { background: rgba(62, 230, 143, .15); color: var(--cyan); border-color: var(--cyan); }
 
 /* 评分卡 */
 .score-num {
