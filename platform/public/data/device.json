@@ -1,0 +1,1 @@
+[{"device":"风机","param":"切入风速m/s","value":3},{"device":"风机","param":"额定风速m/s","value":11},{"device":"光伏","param":"系统效率","value":0.82},{"device":"储能","param":"充放电效率","value":0.92},{"device":"储能","param":"SOC范围","value":"10%-95%"}]
