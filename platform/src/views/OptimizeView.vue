@@ -37,19 +37,7 @@
         </div>
       </section>
 
-      <!-- 板块二：优化求解 -->
-      <div class="opt-grid">
-        <section class="panel">
-          <div class="sec-title"><i />PSO 收敛曲线 <em>单目标 · 最小年总成本</em></div>
-          <div class="panel-chart"><BaseChart :option="convOption" /></div>
-        </section>
-        <section class="panel">
-          <div class="sec-title"><i />绿电目标 × 最小成本 <em>灵敏度分析</em></div>
-          <div class="panel-chart"><BaseChart :option="senOption" /></div>
-        </section>
-      </div>
-
-      <!-- 板块三：方案对比 -->
+      <!-- 板块二：方案对比 -->
       <section class="panel">
         <div class="sec-title"><i />规划方案对比 <em>当前方案 / 优化推荐方案</em></div>
         <table class="cmp-table">
@@ -135,65 +123,6 @@ const predOption = computed(() => {
         lineStyle: { width: 2.4, color: C.blue, type: [6, 5], shadowBlur: 6, shadowColor: 'rgba(77,163,255,.5)' },
         itemStyle: { color: C.blue },
         areaStyle: { color: 'rgba(77,163,255,.10)' }
-      }
-    ]
-  }
-})
-
-/* ---------- PSO 收敛曲线 ---------- */
-const convOption = computed(() => {
-  if (!opt.value) return {}
-  const cv = opt.value.optimum.convergence
-  return {
-    tooltip: { trigger: 'axis', backgroundColor: 'rgba(6,28,18,.95)', borderColor: '#1c5c3e', textStyle: { color: '#e0f7ec', fontSize: 12 } },
-    legend: { top: 4, textStyle: { color: '#9ccbbb', fontSize: 11 }, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
-    grid: { left: 56, right: 20, top: 34, bottom: 30 },
-    xAxis: { type: 'value', name: '代数', nameTextStyle: { color: '#5f8a78' }, axisLabel: { color: '#5f8a78', fontSize: 10 }, splitLine: { show: false } },
-    yAxis: { type: 'value', name: '年总成本 (万元)', nameTextStyle: { color: '#5f8a78' }, axisLabel: { color: '#5f8a78', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(20,67,45,.5)', type: 'dashed' } } },
-    series: [{
-      name: 'PSO 最优成本', type: 'line', data: cv.map((v, i) => [i + 1, v]),
-      symbol: 'none', lineStyle: { width: 2 }, itemStyle: { color: C.wind },
-      areaStyle: { color: 'rgba(62,230,143,.10)' },
-      markLine: {
-        silent: true, symbol: 'none',
-        label: { formatter: '当前方案 {c}', color: C.red, fontSize: 10, position: 'insideEndTop' },
-        lineStyle: { color: C.red, type: 'dashed', width: 1.2 },
-        data: [{ yAxis: opt.value.baseline.cost }]
-      }
-    }]
-  }
-})
-
-/* ---------- 绿电目标灵敏度 ---------- */
-const senOption = computed(() => {
-  if (!opt.value) return {}
-  const s = opt.value.sensitivity || []
-  return {
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: 'rgba(6,28,18,.95)', borderColor: '#1c5c3e', textStyle: { color: '#e0f7ec', fontSize: 12 },
-      formatter: ps => {
-        const a = ps.find(x => x.seriesName === 'PSO 最优成本')
-        if (!a) return ''
-        const it = s[a.dataIndex]
-        return `绿电目标 ${it.greenTarget}%<br/>实际绿电 ${it.green}%<br/>最小成本 <b>${fmt(it.cost, 0)}</b> 万元<br/>弃电率 ${it.curtailRate}%`
-      }
-    },
-    legend: { top: 4, textStyle: { color: '#9ccbbb', fontSize: 11 }, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
-    grid: { left: 56, right: 20, top: 34, bottom: 34 },
-    xAxis: { type: 'value', name: '绿电占比 (%)', min: 40, max: 80, nameTextStyle: { color: '#5f8a78' }, axisLabel: { color: '#5f8a78', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(20,67,45,.5)', type: 'dashed' } } },
-    yAxis: { type: 'value', name: '最小成本 (万元)', nameTextStyle: { color: '#5f8a78' }, axisLabel: { color: '#5f8a78', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(20,67,45,.5)', type: 'dashed' } } },
-    series: [
-      {
-        name: 'PSO 最优成本', type: 'line', smooth: true,
-        data: s.map(x => [x.greenTarget, x.cost]),
-        symbol: 'circle', symbolSize: 7, itemStyle: { color: C.wind },
-        lineStyle: { width: 2 }, areaStyle: { color: 'rgba(62,230,143,.10)' }
-      },
-      {
-        name: '当前方案', type: 'scatter', symbol: 'rect', symbolSize: 13,
-        itemStyle: { color: C.red }, z: 5,
-        data: [[opt.value.baseline.green, opt.value.baseline.cost]]
       }
     ]
   }
@@ -290,14 +219,6 @@ const cmpRows = computed(() => {
 .mc-r2 { margin: 4px 0 2px; font-size: 12px; color: var(--txt-2); }
 .mc-r2 b { font-size: 21px; font-weight: 700; color: var(--txt-1); margin-left: 6px; font-family: Consolas, monospace; }
 .mc-err { font-size: 11px; color: var(--txt-2); }
-
-.opt-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  margin: 0 20px 14px;
-}
-.opt-grid .panel { margin: 0; }
 
 /* 对比表 */
 .cmp-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
