@@ -19,7 +19,7 @@
     <template v-else>
       <!-- 板块一：预测评估 -->
       <section class="panel sec-pred">
-        <div class="sec-title"><i />出力与负荷预测 <em>随机森林模型 · 实际值与预测值对比</em></div>
+        <div class="sec-title"><i />出力与负荷预测 <em>实际值与预测值对比</em></div>
         <div class="pred-body">
           <div class="metric-col">
             <div v-for="m in predMetrics" :key="m.key" class="metric-card"
@@ -90,7 +90,7 @@ const opt = ref(null)
 const ready = computed(() => !!(pred.value && opt.value))
 const predTab = ref('wind')
 
-const C = { wind: '#3ee68f', pv: '#ffb545', load: '#4da3ff', ess: '#b78bff', red: '#ff5d6c', grey: '#7ba28f' }
+const C = { wind: '#3ee68f', pv: '#ffb545', load: '#4da3ff', ess: '#b78bff', red: '#ff5d6c', blue: '#4da3ff', grey: '#7ba28f' }
 
 onMounted(async () => {
   loadJSON('project.json').then(p => { project.value = p }).catch(() => {})
@@ -118,9 +118,6 @@ const predOption = computed(() => {
   if (!pred.value) return {}
   const d = pred.value[predTab.value]
   const lab = Math.max(1, Math.round(d.time.length / 7))
-  const col = predTab.value === 'wind' ? C.wind : predTab.value === 'pv' ? C.pv : C.load
-  const area = predTab.value === 'wind' ? 'rgba(62,230,143,.13)'
-    : predTab.value === 'pv' ? 'rgba(255,181,69,.13)' : 'rgba(77,163,255,.13)'
   return {
     tooltip: { trigger: 'axis', backgroundColor: 'rgba(6,28,18,.95)', borderColor: '#1c5c3e', textStyle: { color: '#e0f7ec', fontSize: 12 } },
     legend: { top: 4, textStyle: { color: '#9ccbbb', fontSize: 11 }, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
@@ -130,14 +127,14 @@ const predOption = computed(() => {
     series: [
       {
         name: '实际值', type: 'line', data: d.actual, symbol: 'none', z: 3,
-        lineStyle: { width: 2.6, color: '#ffffff' },
-        itemStyle: { color: '#ffffff' }
+        lineStyle: { width: 2.8, color: C.red, shadowBlur: 8, shadowColor: 'rgba(255,93,108,.45)' },
+        itemStyle: { color: C.red }
       },
       {
-        name: '预测值', type: 'line', data: d.pred, symbol: 'none', z: 2,
-        lineStyle: { width: 2.2, color: col },
-        itemStyle: { color: col },
-        areaStyle: { color: area }
+        name: '预测值', type: 'line', data: d.pred, symbol: 'none', z: 4,
+        lineStyle: { width: 2.4, color: C.blue, type: [6, 5], shadowBlur: 6, shadowColor: 'rgba(77,163,255,.5)' },
+        itemStyle: { color: C.blue },
+        areaStyle: { color: 'rgba(77,163,255,.10)' }
       }
     ]
   }
