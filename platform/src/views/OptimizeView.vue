@@ -6,38 +6,20 @@
     <div class="pg-head">
       <div>
         <h2>智能优化决策</h2>
-        <p>出力/负荷预测 · 智能优化算法求解规划模型 · 结果由 <b>predict.py / optimize.py</b> 计算输出</p>
+        <p>出力与负荷预测 · 容量优化配置 · 规划方案对比</p>
       </div>
-      <div class="algo-chips">
-        <span class="chip">随机森林预测</span>
-        <span class="chip">PSO · MEALPY</span>
-        <span class="chip">绿电≥65% · 风电≥25%</span>
-      </div>
-    </div>
-
-    <!-- 数据链路：本页是系统内环，承接预测/优化引擎并联动大屏与报告 -->
-    <div class="flow-strip">
-      <span class="fs-step"><i>1</i>预测引擎<small>RandomForest · 风机/光伏/负荷</small></span>
-      <span class="fs-arrow">→</span>
-      <span class="fs-step"><i>2</i>优化求解<small>PSO · MEALPY</small></span>
-      <span class="fs-arrow">→</span>
-      <span class="fs-step"><i>3</i>配置建议<small>推荐容量方案（本页）</small></span>
-      <span class="fs-arrow">→</span>
-      <span class="fs-step"><i>4</i>系统联动<small>大屏推荐卡 · 报告章节</small></span>
-      <span class="fs-note" v-if="ready">✓ 推荐配置已同步至大屏与报告生成页</span>
-      <span class="fs-note off" v-else>等待引擎输出：运行 predict.py / optimize.py 后自动联动</span>
     </div>
 
     <div v-if="!ready" class="empty-hint">
       <div class="empty-icon">⚙</div>
-      <p>结果文件尚未生成</p>
-      <span>请先运行算法引擎脚本 predict.py 与 optimize.py，输出 prediction_results.json 与 optimization_results.json 后刷新本页</span>
+      <p>计算结果尚未生成</p>
+      <span>请先在数据管理页完成数据导入，系统将自动重算并生成本页结果</span>
     </div>
 
     <template v-else>
       <!-- 板块一：预测评估 -->
       <section class="panel sec-pred">
-        <div class="sec-title"><i />出力与负荷预测 <em>随机森林 · 测试集前168小时</em></div>
+        <div class="sec-title"><i />出力与负荷预测 <em>随机森林模型 · 实际值与预测值对比</em></div>
         <div class="pred-body">
           <div class="metric-col">
             <div v-for="m in predMetrics" :key="m.key" class="metric-card"
@@ -45,8 +27,8 @@
               <div class="mc-head">
                 <span class="dot" :style="{ background: m.color }" />{{ m.name }}
               </div>
-              <div class="mc-r2">R² <b>{{ m.r2 }}</b></div>
-              <div class="mc-err">MAE {{ m.mae }} MW ｜ RMSE {{ m.rmse }} MW</div>
+              <div class="mc-r2">决定系数 <b>{{ m.r2 }}</b></div>
+              <div class="mc-err">平均绝对误差 {{ m.mae }} MW ｜ 均方根误差 {{ m.rmse }} MW</div>
             </div>
           </div>
           <div class="pred-chart panel-chart">
@@ -69,12 +51,12 @@
 
       <!-- 板块三：方案对比 -->
       <section class="panel">
-        <div class="sec-title"><i />规划方案对比 <em>平台基线 / PSO 优化方案</em></div>
+        <div class="sec-title"><i />规划方案对比 <em>当前方案 / 优化推荐方案</em></div>
         <table class="cmp-table">
           <thead>
             <tr>
               <th>方案</th><th>风电<br>MW</th><th>光伏<br>MW</th><th>储能<br>MW / MWh</th>
-              <th>年总成本<br>万元</th><th>LCOE<br>元/kWh</th><th>绿电占比<br>%</th>
+              <th>年总成本<br>万元</th><th>度电成本<br>元/kWh</th><th>绿电占比<br>%</th>
               <th>弃电率<br>%</th><th>碳减排<br>t</th>
             </tr>
           </thead>
@@ -136,6 +118,9 @@ const predOption = computed(() => {
   if (!pred.value) return {}
   const d = pred.value[predTab.value]
   const lab = Math.max(1, Math.round(d.time.length / 7))
+  const col = predTab.value === 'wind' ? C.wind : predTab.value === 'pv' ? C.pv : C.load
+  const area = predTab.value === 'wind' ? 'rgba(62,230,143,.13)'
+    : predTab.value === 'pv' ? 'rgba(255,181,69,.13)' : 'rgba(77,163,255,.13)'
   return {
     tooltip: { trigger: 'axis', backgroundColor: 'rgba(6,28,18,.95)', borderColor: '#1c5c3e', textStyle: { color: '#e0f7ec', fontSize: 12 } },
     legend: { top: 4, textStyle: { color: '#9ccbbb', fontSize: 11 }, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
@@ -143,8 +128,17 @@ const predOption = computed(() => {
     xAxis: { type: 'category', data: d.time, axisLine: { lineStyle: { color: '#2a6b4a' } }, axisTick: { show: false }, axisLabel: { color: '#5f8a78', fontSize: 10, interval: lab } },
     yAxis: { type: 'value', name: 'MW', nameTextStyle: { color: '#5f8a78' }, axisLabel: { color: '#5f8a78', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(20,67,45,.5)', type: 'dashed' } } },
     series: [
-      { name: '实际值', type: 'line', data: d.actual, symbol: 'none', lineStyle: { width: 1.6, color: C.grey }, itemStyle: { color: C.grey } },
-      { name: '预测值', type: 'line', data: d.pred, symbol: 'none', lineStyle: { width: 1.6 }, itemStyle: { color: predTab.value === 'wind' ? C.wind : predTab.value === 'pv' ? C.pv : C.load } }
+      {
+        name: '实际值', type: 'line', data: d.actual, symbol: 'none', z: 3,
+        lineStyle: { width: 2.6, color: '#ffffff' },
+        itemStyle: { color: '#ffffff' }
+      },
+      {
+        name: '预测值', type: 'line', data: d.pred, symbol: 'none', z: 2,
+        lineStyle: { width: 2.2, color: col },
+        itemStyle: { color: col },
+        areaStyle: { color: area }
+      }
     ]
   }
 })
@@ -165,7 +159,7 @@ const convOption = computed(() => {
       areaStyle: { color: 'rgba(62,230,143,.10)' },
       markLine: {
         silent: true, symbol: 'none',
-        label: { formatter: '基线 {c}', color: C.red, fontSize: 10, position: 'insideEndTop' },
+        label: { formatter: '当前方案 {c}', color: C.red, fontSize: 10, position: 'insideEndTop' },
         lineStyle: { color: C.red, type: 'dashed', width: 1.2 },
         data: [{ yAxis: opt.value.baseline.cost }]
       }
@@ -200,7 +194,7 @@ const senOption = computed(() => {
         lineStyle: { width: 2 }, areaStyle: { color: 'rgba(62,230,143,.10)' }
       },
       {
-        name: '平台基线', type: 'scatter', symbol: 'rect', symbolSize: 13,
+        name: '当前方案', type: 'scatter', symbol: 'rect', symbolSize: 13,
         itemStyle: { color: C.red }, z: 5,
         data: [[opt.value.baseline.green, opt.value.baseline.cost]]
       }
@@ -219,8 +213,8 @@ const cmpRows = computed(() => {
     green: fmt(info.green, 1), curtail: fmt(info.curtailRate, 2), carbon: fmt(info.carbon, 0)
   })
   return [
-    row('平台基线', opt.value.baseline),
-    row('PSO 优化方案', opt.value.optimum, true)
+    row('当前方案', opt.value.baseline),
+    row('优化推荐方案', opt.value.optimum, true)
   ]
 })
 </script>
@@ -240,16 +234,6 @@ const cmpRows = computed(() => {
 }
 .pg-head h2 { font-size: 17px; color: var(--txt-1); margin: 0 0 4px; }
 .pg-head p { margin: 0; font-size: 12px; color: var(--txt-2); }
-.pg-head p b { color: var(--cyan); font-weight: 600; }
-.algo-chips { display: flex; gap: 8px; }
-.chip {
-  font-size: 11px;
-  color: var(--cyan);
-  border: 1px solid var(--panel-border);
-  background: rgba(62, 230, 143, .06);
-  border-radius: 20px;
-  padding: 3px 12px;
-}
 
 .panel {
   margin: 0 20px 14px;  border: 1px solid var(--panel-border);
